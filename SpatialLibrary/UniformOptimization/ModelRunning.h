@@ -47,12 +47,12 @@ struct rates {
     double kDeg;       ///< Degradation rate.
     double fElse;      ///< Recycling fraction for non-D2 species.
     double fD2;        ///< Recycling fraction for D2.
-    int pD1;
-    double internalFrac;
-    double internalV;
-    double autocrine;
-    double gasCur;
-    double *diffD;
+    int pD1;           // Either or 0 or 1, denoting whether the D1 species is active
+    double internalFrac;  //Fraction of receptor internalized
+    double internalV;  //Internal volume
+    double autocrine;  //Autocrine levels of Gas6
+    double gasCur;     //Current level of Gas6 (changes based on simulation)
+    double *diffD;  
     double *gasProfile;
 };
 
@@ -154,16 +154,22 @@ static const double surfError[6][2] = {
     {0.030, 0.023}}; // A549
 
 
-double calcError (struct rates, double *);
-void*initState(N_Vector, struct rates *);
-void calcProfile (N_Vector, N_Vector, N_Vector, N_Vector, N_Vector, struct rates *, double, double);
+int AXL_react(double, N_Vector, N_Vector, void *); //Takes concentrations, rates of change, and user data to 
+double surfCalc (N_Vector);  //Uses to CVode state to calculate amount of receptor on the surface of the cell
+double pYcalc (N_Vector, struct rates *);  //Uses CVode state to calculate amount of phosphorylated receptor
+double totCalc (const N_Vector, const struct rates * const p);  //Uses CVode state to calculate the total number of receptors
+struct rates Param(const double *);  //Creates a construction for reaction constants using a set of input parameters
+double calcError (struct rates, double *);  //Calculates the chi squared error for all parts based on comparison of predicted and measured amounts of receptor
+double U87calcError (struct rates, double *);  //Performs calcError for the U87 cell line
+void*initState(N_Vector, struct rates *);  //Calculates the initial state using CVode going to a steady state
+void calcProfile (N_Vector, N_Vector, N_Vector, N_Vector, N_Vector, struct rates *, double, double);  
+//Using the outputs of surfCalc, pYcalc, and totCalc and given time points and stimulations uses the CVode solver to create ODEs
 void calcProfileSet (double *, double *, double *, double *, double *, struct rates *, unsigned int, double, double *);
-int AXL_react(double, N_Vector, N_Vector, void *);
-struct rates Param(const double *);
-double pYcalc (N_Vector, struct rates *);
 void diffusionSolution(double *, double *, unsigned int, double *, double *, unsigned int, double *);
-double totCalc (const N_Vector, const struct rates * const p);
-double surfCalc (N_Vector);
-double U87calcError (struct rates, double *);
+//Models the diffusion of Gas6
+
+
+
+
 
 #endif /* defined(__UniformOptimization__ModelRunning__) */
