@@ -6,6 +6,8 @@
 //  Copyright (c) 2014 Aaron Meyer. All rights reserved.
 //
 
+//Includes files, libraries, and header files used to create N_vectors, throw exceptions, solve systems of ODEs, etc.
+
 #include "sundials_nvector.h"
 #include "cvode.h"
 #include <vector>
@@ -24,127 +26,107 @@ using namespace std;
 
 const double fgMgConv = 135.2;
 
+//Rates of reactions between each species and overall rates of change (concentration/time) for those species
+
 static int AXL_react(double, double *x_d, double *dxdt_d, void *user_data) {
     struct rates *r = (struct rates *) user_data;
     
-    // 0 AXL   // 1 A1    // 2 A2
-    // 3 A12    // 4 D1    // 5 D2    // 6 AXLi
-    // 7 A1i    // 8 A2i   // 9 A12i // 10 D1i    // 11 D2i   // 12 Gasi
+    //Relevant species:
+    // 0 AXL, monomeric AXL, no Gas6 bound to any site           // 6 AXLi
+    // 1 A1, AXL with Gas6 bound at the high affinity site (IG1) // 7 A1i 
+    // 2 A2, AXL with Gas6 bound at the low affinity site  (IG2) // 8 A2i 
+    // 3 A12, AXL with Gas6 bound at both sites                  // 9 A12i    
+    // 4 D1, AXL dimer with one ligand bridging the receptors    // 10 D1i
+    // 5 D2, AXL dimer with two ligands bridging the receptors   // 11 D2i
+                                                                 // 12 Gasi 
+    //"AXL" refers to AXL outside the cell, "AXLi" refers to AXL inside the cell
     
-    const double dR1 = r->Binding1 * x_d[0] * r->gasCur - r->Unbinding1 * x_d[1];
-    const double dR2 = r->Binding2 * x_d[0] * r->gasCur - r->Unbinding2 * x_d[2];
-    const double dR3 = r->Binding2 * x_d[1] * r->gasCur - r->Unbinding2 * x_d[3];
-    const double dR4 = r->Binding1 * x_d[2] * r->gasCur - r->Unbinding1 * x_d[3];
-    const double dR5 = r->xFwd1 * x_d[0] * x_d[1] - r->xRev1 * x_d[4];
-    const double dR6 = r->xFwd2 * x_d[0] * x_d[2] - r->xRev2 * x_d[4];
-    const double dR7 = r->xFwd3 * x_d[0] * x_d[3] - r->xRev3 * x_d[5];
-    const double dR8 = r->xFwd4 * x_d[1] * x_d[1] - r->xRev4 * x_d[5];
-    const double dR9 = r->xFwd5 * x_d[2] * x_d[2] - r->xRev5 * x_d[5];
-    const double dR11 = r->xFwd6 * r->gasCur * x_d[4] - r->xRev6 * x_d[5];
+    //Rates of reaction for reactions that convert between species
+    const double dR1 = r->Binding1 * x_d[0] * r->gasCur - r->Unbinding1 * x_d[1]; //AXL + Gas6 <--> A1
+    const double dR2 = r->Binding2 * x_d[0] * r->gasCur - r->Unbinding2 * x_d[2]; //AXL + Gas6 <--> A2
+    const double dR3 = r->Binding2 * x_d[1] * r->gasCur - r->Unbinding2 * x_d[3]; //A1 + Gas6 <--> A12
+    const double dR4 = r->Binding1 * x_d[2] * r->gasCur - r->Unbinding1 * x_d[3]; //A2 + Gas6 <--> A12
     
-    const double dR32 = r->Binding1 * x_d[6] * x_d[12] / r->internalV - r->Unbinding1 * x_d[7];
-    const double dR33 = r->Binding2 * x_d[6] * x_d[12] / r->internalV - r->Unbinding2 * x_d[8];
-    const double dR34 = r->Binding2 * x_d[7] * x_d[12] / r->internalV - r->Unbinding2 * x_d[9];
-    const double dR35 = r->Binding1 * x_d[8] * x_d[12] / r->internalV - r->Unbinding1 * x_d[9];
-    const double dR36 = r->xFwd1 * x_d[6] * x_d[7] - r->xRev1 * x_d[10];
-    const double dR37 = r->xFwd2 * x_d[6] * x_d[8] - r->xRev2 * x_d[10];
-    const double dR38 = r->xFwd3 * x_d[6] * x_d[9] - r->xRev3 * x_d[11];
-    const double dR39 = r->xFwd4 * x_d[7] * x_d[7] - r->xRev4 * x_d[11]; // Checked
-    const double dR40 = r->xFwd5 * x_d[8] * x_d[8] - r->xRev5 * x_d[11]; // Checked
-    const double dR41 = r->xFwd6 * x_d[12] * x_d[10] / r->internalV - r->xRev6 * x_d[11]; // Checked
+    const double dR5 = r->xFwd1 * x_d[0] * x_d[1] - r->xRev1 * x_d[4]; //AXL + A1 <--> D1
+    const double dR6 = r->xFwd2 * x_d[0] * x_d[2] - r->xRev2 * x_d[4]; //AXL + A2 <--> D1
+    const double dR7 = r->xFwd3 * x_d[0] * x_d[3] - r->xRev3 * x_d[5]; //AXL + A12 <--> D2
+    const double dR8 = r->xFwd4 * x_d[1] * x_d[1] - r->xRev4 * x_d[5]; //A1 + A1 <--> D2
+    const double dR9 = r->xFwd5 * x_d[2] * x_d[2] - r->xRev5 * x_d[5]; //A2 + A2 <--> D2
+    const double dR11 = r->xFwd6 * r->gasCur * x_d[4] - r->xRev6 * x_d[5]; //D1 + Gas6 <--> D2
     
+    const double dR32 = r->Binding1 * x_d[6] * x_d[12] / r->internalV - r->Unbinding1 * x_d[7];  //AXLi + Gas6i <--> A1i
+    const double dR33 = r->Binding2 * x_d[6] * x_d[12] / r->internalV - r->Unbinding2 * x_d[8];  //AXLi + Gas6i <--> A2i
+    const double dR34 = r->Binding2 * x_d[7] * x_d[12] / r->internalV - r->Unbinding2 * x_d[9];  //A1i + Gas6i <--> A12i
+    const double dR35 = r->Binding1 * x_d[8] * x_d[12] / r->internalV - r->Unbinding1 * x_d[9];  //A2i + Gas6i <--> A12i
+    
+    const double dR36 = r->xFwd1 * x_d[6] * x_d[7] - r->xRev1 * x_d[10];  //AXLi + A1i <--> D1i
+    const double dR37 = r->xFwd2 * x_d[6] * x_d[8] - r->xRev2 * x_d[10];  //AXLi + A2i <--> D1i
+    const double dR38 = r->xFwd3 * x_d[6] * x_d[9] - r->xRev3 * x_d[11];  //AXLi + A12i <--> D2i
+    const double dR39 = r->xFwd4 * x_d[7] * x_d[7] - r->xRev4 * x_d[11];  //A1i + A1i <--> D2i
+    const double dR40 = r->xFwd5 * x_d[8] * x_d[8] - r->xRev5 * x_d[11];  //A2i + A2i <--> D2i
+    const double dR41 = r->xFwd6 * x_d[10] * x_d[12] / r->internalV - r->xRev6 * x_d[11];  //D1 + Gas6 <--> D2
+    
+    //overall rate of change (concentration/time) for each species
     dxdt_d[0] = - dR7 - dR6 - dR5 - dR1 - dR2 + r->expression; // AXL
-    dxdt_d[1] = -2*(dR8) - dR5 + dR1 - dR3                   ; // AXLgas1
-    dxdt_d[2] = -2*(dR9) - dR6 + dR2 - dR4                   ; // AXLgas2
-    dxdt_d[3] = -dR7 + dR3 + dR4                             ; // AXLgas12
-    dxdt_d[4] = -dR11 + dR6 + dR5                            ; // AXLdimer1
-    dxdt_d[5] = dR11 + dR9 + dR8 + dR7                       ; // AXLdimer2
+    dxdt_d[1] = -2*(dR8) - dR5 + dR1 - dR3                   ; // A1
+    dxdt_d[2] = -2*(dR9) - dR6 + dR2 - dR4                   ; // A2
+    dxdt_d[3] = -dR7 + dR3 + dR4                             ; // A12
+    dxdt_d[4] = -dR11 + dR6 + dR5                            ; // D1
+    dxdt_d[5] = dR11 + dR9 + dR8 + dR7                       ; // D2
     
     dxdt_d[6]  = - dR38 - dR37 - dR36 - dR32 - dR33          ; // AXLi
-    dxdt_d[7]  = -2*(dR39) - dR36 + dR32 - dR34              ; // AXLgas1i
-    dxdt_d[8]  = -2*(dR40) - dR37 + dR33 - dR35              ; // AXLgas2i
-    dxdt_d[9] = -dR38 + dR34 + dR35                         ; // AXLgas12i
-    dxdt_d[10] = -dR41 + dR37 + dR36                          ; // AXLdimer1i
-    dxdt_d[11] = dR41 + dR40 + dR39 + dR38                   ; // AXLdimer2i
+    dxdt_d[7]  = -2*(dR39) - dR36 + dR32 - dR34              ; // A1i
+    dxdt_d[8]  = -2*(dR40) - dR37 + dR33 - dR35              ; // A2i
+    dxdt_d[9] = -dR38 + dR34 + dR35                          ; // A12i
+    dxdt_d[10] = -dR41 + dR37 + dR36                         ; // D1i
+    dxdt_d[11] = dR41 + dR40 + dR39 + dR38                   ; // D2i
     
-    dxdt_d[12] = -dR41 - dR32 - dR33 - dR34 - dR35 - r->kDeg*x_d[12];
+    dxdt_d[12] = -dR41 - dR32 - dR33 - dR34 - dR35 - r->kDeg*x_d[12];  //Gasi
     
-    
-    dxdt_d[0] += -x_d[0]*(r->internalize) + r->kRec*(1-r->fElse)*x_d[6]*r->internalFrac; // Endocytosis, recycling
-    dxdt_d[6] += x_d[0]*(r->internalize)/r->internalFrac - r->kRec*(1-r->fElse)*x_d[6] - r->kDeg*r->fElse*x_d[6]; // Endocytosis, recycling, degradation
+    //Rate modifications due to endocytosis, recycling, degradation, etc.
+    dxdt_d[0] += -x_d[0]*(r->internalize) + r->kRec*(1-r->fElse)*x_d[6]*r->internalFrac; // AXL endocytosis, recycling
+    dxdt_d[6] += x_d[0]*(r->internalize)/r->internalFrac - r->kRec*(1-r->fElse)*x_d[6] - r->kDeg*r->fElse*x_d[6]; // AXL endocytosis, recycling, degradation
     
     for (int ii = 1; ii < 4; ii++) {
         dxdt_d[ii]  += -x_d[ii]*r->internalize + r->kRec*(1-r->fElse)*x_d[ii+6]*r->internalFrac; // Endocytosis, recycling
         dxdt_d[ii+6] += x_d[ii]*r->internalize/r->internalFrac - r->kRec*(1-r->fElse)*x_d[ii+6] // Endocytosis, recycling
         - r->kDeg*r->fElse*x_d[ii+6]; // Degradation
+        //For A1, A2, A12, A1i, A2i, A12i
     }
     
-    // D1 trafficking
+    //D1 trafficking
     if (r->pD1 == 1) {
         dxdt_d[4]  += -x_d[4]*(r->internalize + r->pYinternalize) + r->kRec*(1-r->fD2)*x_d[10]*r->internalFrac; // Endocytosis, recycling
         dxdt_d[10] += x_d[4]*(r->internalize + r->pYinternalize)/r->internalFrac - r->kRec*(1-r->fD2)*x_d[10] - r->kDeg*r->fD2*x_d[10]; // Endocytosis, recycling, degradation
-    } else {
+    } 
+    else {
         dxdt_d[4]  += -x_d[4]*r->internalize + r->kRec*(1-r->fElse)*x_d[10]*r->internalFrac; // Endocytosis, recycling
         dxdt_d[10] += x_d[4]*r->internalize/r->internalFrac - r->kRec*(1-r->fElse)*x_d[10] // Endocytosis, recycling
         - r->kDeg*r->fElse*x_d[10]; // Degradation
     }
     
+    //For D2, D2i
     dxdt_d[5]  += -x_d[5]*(r->internalize + r->pYinternalize) + r->kRec*(1-r->fD2)*x_d[11]*r->internalFrac; // Endocytosis, recycling
     dxdt_d[11] += x_d[5]*(r->internalize + r->pYinternalize)/r->internalFrac - r->kRec*(1-r->fD2)*x_d[11] - r->kDeg*r->fD2*x_d[11]; // Endocytosis, recycling, degradation
-    
     
     return 0;
 }
 
-int AXL_react(double t, N_Vector xIn, N_Vector dxdtIn, void *user_data) {
-    double* x_d = NV_DATA_S(xIn);
-    double* dxdt_d = NV_DATA_S(dxdtIn);
-    
-    return AXL_react(t, x_d, dxdt_d, user_data);
-}
-
-
-
-double surfCalc (N_Vector state) {
-    return (Ith(state,0) + Ith(state,1) + Ith(state,2) + Ith(state,3) + 2*Ith(state,4) + 2*Ith(state,5))/fgMgConv;
-}
-
-
-// This takes the model state and calculates the amount of phosphorylated species
-double pYcalc (N_Vector state, struct rates *p) {
-    if (p->pD1 == 1) {
-        return 2*Ith(state,5) + 2*Ith(state,4) + p->internalFrac*(2*Ith(state,11) + 2*Ith(state,10));
-    } else {
-        return 2*Ith(state,5) + p->internalFrac*(2*Ith(state,11));
-    }
-}
-
-// This takes the model state and calculates the total amount of receptor in a cell
-double totCalc (const N_Vector state, const struct rates * const p) {
-    double total = 0;
-    
-    for (int ii = 0; ii < 6; ii++) total += Ith(state,ii);
-    for (int ii = 6; ii < 12; ii++) total += Ith(state,ii)*p->internalFrac;
-    
-    total += Ith(state,4);
-    total += Ith(state,5);
-    total += Ith(state,10)*p->internalFrac;
-    total += Ith(state,11)*p->internalFrac;
-    
-    return total/fgMgConv;
-}
-
+//Calculates or inputs the constants necessary for the calculation of rates in AXL_react
 struct rates Param(const double * const params) {
     struct rates out;
     
     if (min_element(params,params+(Nparams - 1)) < 0)
         throw invalid_argument(string("Parameter outside the physical range."));
         
-        out.Binding1 = 1.2;
+        out.Binding1 = 1.2; 
         out.Binding2 = 0.06;
         out.Unbinding1 = 0.042;
         out.Unbinding2 = params[0];
         
+        /*Params contain reasonable estimates of what we might expect those values to be, as we haven't yet found a way
+        to measure them.  We hope to do so in future iterations using bayesian analysis.
+        */
         out.xFwd1 = params[1];
         out.xFwd2 = out.xFwd1;
         out.xFwd3 = out.xFwd1;
@@ -169,37 +151,76 @@ struct rates Param(const double * const params) {
         const double KD1 = out.Unbinding1 / out.Binding1;
         const double KD2 = out.Unbinding2 / out.Binding2;
         
-        out.xRev1 = out.Unbinding2; /// Checked
-        out.xRev2 = KD1*out.xRev1/KD2; // Checked
-        out.xRev5 = out.xRev4*KD1*KD1/KD2/KD2; // Checked
-        out.xRev6 = KD1*out.xFwd6*out.xRev4/out.xRev1; // Checked
-        out.xRev3 = out.xRev4*KD1/KD2; // Checked
-        
-        
+        out.xRev1 = out.Unbinding2; 
+        out.xRev2 = KD1*out.xRev1/KD2; 
+        out.xRev5 = out.xRev4*KD1*KD1/KD2/KD2; 
+        out.xRev6 = KD1*out.xFwd6*out.xRev4/out.xRev1; 
+        out.xRev3 = out.xRev4*KD1/KD2; 
         
         return out;
 }
 
+//Inputs the data into x_d and dxdt_d from N_vectors
+int AXL_react(double t, N_Vector xIn, N_Vector dxdtIn, void *user_data) {
+    double* x_d = NV_DATA_S(xIn);
+    double* dxdt_d = NV_DATA_S(dxdtIn);
+    
+    return AXL_react(t, x_d, dxdt_d, user_data);
+}
+
+//Based on the model state, calculates the amount of all species outside the cell (AXL, A1, A2, A12, D1, D2)
+double surfCalc (N_Vector state) {
+    return (Ith(state,0) + Ith(state,1) + Ith(state,2) + Ith(state,3) + 2*Ith(state,4) + 2*Ith(state,5))/fgMgConv;
+}
 
 
-/// END REACTION CODE
+// Based on the model state, calculates the relative amount of phosphorylated species by finding the number of dimerized AXL receptors
+double pYcalc (N_Vector state, struct rates *p) {
+    //if p->pD1 is 1, this means that an AXL dimer bound by one ligand (D1) can become phosphorylated, an assumption that has been accurate thus far  
+    if (p->pD1 == 1) {
+        return 2*Ith(state,5) + 2*Ith(state,4) + p->internalFrac*(2*Ith(state,11) + 2*Ith(state,10));
+    } 
+    else {
+        return 2*Ith(state,5) + p->internalFrac*(2*Ith(state,11));
+    }
+}
 
+// Based on the model state, calculates the total amount of receptor in a cell
+double totCalc (const N_Vector state, const struct rates * const p) {
+    double total = 0;
+    
+    for (int ii = 0; ii < 6; ii++) total += Ith(state,ii);
+    for (int ii = 6; ii < 12; ii++) total += Ith(state,ii)*p->internalFrac;
+    //adds up total number of AXL receptors in each species
+    
+    total += Ith(state,4);
+    total += Ith(state,5);
+    total += Ith(state,10)*p->internalFrac;
+    total += Ith(state,11)*p->internalFrac;
+    //doubles the amount of D1, D2, D1i, and D2i to account for the two AXL recpetors comprising an AXL dimer
+    
+    return total/fgMgConv;
+}
+
+// All reactions and amount calculations defined by this point
 
 #define NVp N_VGetArrayPointer_Serial
 
+//Construction to hold values for various experiments/conditions
 struct inData {
     size_t N;
-    const double *fitt;           ///< Calculated model values.
-    const double *pYmeas;    ///< pY measurement.
-    const double *errorMeas; ///< Error for pY measurement.
+    const double *fitt;           // Model-calculated phosphorylation values.
+    const double *pYmeas;    // Measured phosphorylation values.
+    const double *errorMeas; // Error for phosphorylation measurement.
 };
 
+//Calculates the dose and kinetic responses based on the model calculations
 static void calcKinetic (double *outData, double *totData, double *surfData, double *earlyPY, struct rates *params) {
     N_Vector init_state = N_VNew_Serial(Nspecies);
     double t;
     
     void *cvode_mem = initState(init_state, params);
-    // Initialize state based on autocrine ligand
+    // Initialize state based on autocrine levels of ligand
     
     if (cvode_mem == NULL) {
         N_VDestroy_Serial(init_state);
@@ -207,28 +228,26 @@ static void calcKinetic (double *outData, double *totData, double *surfData, dou
         return;
     }
     
-    //
-    // This part will calculate the dose response
-    //
+    /*This part will calculate the dose response to varying additions of ligand */
     struct rates paramTwo = *params;
     N_Vector state = N_VClone(init_state);
-    // Initialize state based on autocrine ligand
+    // Initialize state based on autocrine levels of ligand
     
     for (size_t stimuli = 0; stimuli < 6; stimuli++) {
         for (int xx = 0; xx < Nspecies; xx++) Ith(state,xx) = Ith(init_state,xx);
+        //initializes all states to the initial state
         
-        paramTwo.gasCur = paramTwo.autocrine + Gass[stimuli];
-        CVodeSetUserData(cvode_mem, &paramTwo);
+        paramTwo.gasCur = paramTwo.autocrine + Gass[stimuli]; 
+        //Sets current Gas6 levels to autocrine + variable stimulus
+        CVodeSetUserData(cvode_mem, &paramTwo);  //Inputs data to CVode
         
         t = 0;
         
         solverReset(cvode_mem, state);
         
-        /* In loop, call CVode, print results, and test for error.
-         Break out of loop when NOUT preset output times have been reached.  */
-        
-        for (unsigned int ii = 0; ii < NELEMS(times); ii++) {
+            for (unsigned int ii = 0; ii < NELEMS(times); ii++) {
             int flag = CVode(cvode_mem, times[ii], state, &t, CV_NORMAL);
+            //Calls CVode and prints it's results
             
             if (flag < 0) {
                 N_VDestroy_Serial(state);
@@ -237,35 +256,34 @@ static void calcKinetic (double *outData, double *totData, double *surfData, dou
                 throw runtime_error(string("Error during solver threads."));
                 return;
             }
+            //flag checks to make sure that no negative value was returned by CVode, indicating an error
             
             outData[stimuli*NELEMS(times) + ii] = pYcalc(state,params);
             totData[stimuli*NELEMS(times) + ii] = totCalc(state,params);
             surfData[stimuli*NELEMS(times) + ii] = surfCalc(state);
+            /*[stimuli*NELEMS(times) + ii] indexes each one-dimensional array by stimulus and time */
         }
     }
     
-    //
-    // This part calculates the kinetic response
-    //
-    earlyPY[0] = pYcalc(init_state,params);
-    // Initialize state based on autocrine ligand
+     /* This part will calculate the kinetic response to a given addition to the Gas6 concentration
+    */
+    earlyPY[0] = pYcalc(init_state,params);  // Initialize state based on autocrine levels of ligand
     
-    /* We've got the initial state, so now run through the kinetic data */
+    
     for (int xx = 0; xx < Nspecies; xx++) Ith(state,xx) = Ith(init_state,xx);
+    //Initializes all states to the initial state
     
-    paramTwo.gasCur = paramTwo.autocrine + 1.25;
+    paramTwo.gasCur = paramTwo.autocrine + 1.25;  //Sets current level of ligand to autocrine + given stimulus
     
-    CVodeSetUserData(cvode_mem, &paramTwo);
+    CVodeSetUserData(cvode_mem, &paramTwo);  //Inputs data to CVode
     
     t = 0;
     
-    solverReset(cvode_mem, state);
-    
-    /* In loop, call CVode, print results, and test for error.
-     Break out of loop when NOUT preset output times have been reached.  */
+    solverReset(cvode_mem, state); //resets CVode solver
     
     for (unsigned int ii = 1; ii < NELEMS(kTPS); ii++) {
         int flag = CVode(cvode_mem, kTPS[ii], state, &t, CV_NORMAL);
+        //Calls CVode and prints it's results
         
         if (flag < 0) {
             N_VDestroy_Serial(state);
@@ -274,29 +292,49 @@ static void calcKinetic (double *outData, double *totData, double *surfData, dou
             throw runtime_error(string("Error during solver threads."));
             return;
         }
+        //flag checks to make sure that no negative value was returned by CVode, indicating an error    
         
         earlyPY[ii] = pYcalc(state,params);
+        //indexes kinetic response array for phosphorylation at each time point
     }
 
     N_VDestroy_Serial(state);
     CVodeFree(&cvode_mem);
     N_VDestroy_Serial(init_state);
+    //resets solver and frees memory
 }
 
+//Standard calculation of error for model data vs. measured data
 static double errorFunc (double fitt, double pYmeas, double errorMeas) {
     return pow((((double) fitt) - pYmeas) / errorMeas, 2) / 2;
 }
 
+//Chi squared error for relative measurements
 static double errorOpt(unsigned, const double *x, double *, void *data) {
     struct inData *dataS = (struct inData *) data;
+    /*(*x) is the adjustment constant used when comparing the relative measurements to absolute measurements
+    The errorFuncOpt function calculates this value to minimize the error*/
     double xx = 0;
     
     for (int ii = 0; ii < dataS->N; ii++)
         xx += errorFunc(dataS->fitt[ii] * x[0], dataS->pYmeas[ii], dataS->errorMeas[ii]);
+    //sums the error at all points
     
     return xx;
 }
 
+//Chi squared error for absolute measurements
+static double errorFuncFix (const double *fitt, const double *pYmeas, const double *errorMeas, size_t inN) {
+    double xx = 0;
+    /*The same as errorOpt, except the adjustment constant for an absolute measurement is, by definition, 1*/
+    for (int ii = 0; ii < inN; ii++)
+        xx += errorFunc(fitt[ii], pYmeas[ii], errorMeas[ii]);
+    //sums the error at all points
+    
+    return xx;
+}
+
+//Finds the initial condition necessary to minimize the error in errorFuncOpt
 static double initialCondition (struct inData *dataS) {
     double meas = 0;
     double fit = 0;
@@ -309,6 +347,8 @@ static double initialCondition (struct inData *dataS) {
     return fit / meas;
 }
 
+//Uses the nlopt and cobyla libraries to find the adjustment constant for relative measurements that will 
+//yield the smallest chi squared error
 static double errorFuncOpt (const double *fitt, const double *pYmeas, const double *errorMeas, size_t inN, double *xx) {
     struct inData dataS;
     dataS.fitt = fitt;
@@ -333,6 +373,7 @@ static double errorFuncOpt (const double *fitt, const double *pYmeas, const doub
     stop.nevals = 0;
     stop.maxeval = 1E9;
     stop.force_stop = 0;
+    //tolerances required by the nlopt functions
     
     int flag = cobyla_minimize(1, errorOpt, &dataS, 0, NULL, 0, NULL, &lower, &upper, xx, &ff, &stop, &dx);
     
@@ -341,15 +382,7 @@ static double errorFuncOpt (const double *fitt, const double *pYmeas, const doub
     return ff;
 }
 
-static double errorFuncFix (const double *fitt, const double *pYmeas, const double *errorMeas, size_t inN) {
-    double xx = 0;
-    
-    for (int ii = 0; ii < inN; ii++)
-        xx += errorFunc(fitt[ii], pYmeas[ii], errorMeas[ii]);
-    
-    return xx;
-}
-
+//Calculates the cumulative error for all parts (outData, totData, surfData, earlyPY)
 double calcError (struct rates inP, double *fitParam) {
     double outData[NELEMS(Gass)*NELEMS(times)];
     double totData[NELEMS(Gass)*NELEMS(times)];
@@ -374,6 +407,7 @@ double calcError (struct rates inP, double *fitParam) {
     return error;
 }
 
+//Calculates the error for all parts with the U87
 double U87calcError (struct rates inP, double *fitParam) {
     double outData[NELEMS(Gass)*NELEMS(times)];
     double totData[NELEMS(Gass)*NELEMS(times)];
@@ -399,7 +433,7 @@ double U87calcError (struct rates inP, double *fitParam) {
 
 
 
-// Calculate the initial state by waiting a long time with autocrine Gas
+// Calculate the initial state using CVode by waiting for the ligand concentration to reach steady state
 void *initState( N_Vector init, struct rates *params) {
     double t;
     
@@ -420,14 +454,14 @@ void *initState( N_Vector init, struct rates *params) {
     return cvode_mem;
 }
 
-/// Calculate phosphorylation at time points measured
+//Calculate phosphorylation at time points measured
 void calcProfileSet (double *pYData, double *totData, double *surfData, double *speciesData, double *tps, struct rates *params, unsigned int nTps, double GasStim, double *convFac) {
     calcError(*params, convFac);
     
     N_Vector state = N_VNew_Serial(Nspecies);
     struct rates paramTwo = *params;
     
-    double t; ///< Time position of the solver.
+    double t; //Time position of the solver.
     
     void *cvode_mem = NULL;
     int flag;
@@ -441,7 +475,7 @@ void calcProfileSet (double *pYData, double *totData, double *surfData, double *
     }
     
     
-    /* We've got the initial state, so now run through the kinetic data */
+    //Uses CVode to solve for kinetic response
     paramTwo.gasCur = paramTwo.gasCur + GasStim;
     CVodeSetUserData(cvode_mem, &paramTwo);
     t = 0;
@@ -458,6 +492,7 @@ void calcProfileSet (double *pYData, double *totData, double *surfData, double *
      Break out of loop when NOUT preset output times have been reached.  */
     size_t ii = 0;
     
+    //Finds the concentration of each species initially (at time point 0)
     if (tps[0] == 0) {
         pYData[ii] = pYcalc(state,params);
         totData[ii] = totCalc(state,params);
@@ -471,6 +506,7 @@ void calcProfileSet (double *pYData, double *totData, double *surfData, double *
         ii = 1;
     }
     
+    //Finds the concentration of each species for multiple
     for (; ii < nTps; ii++) {
         flag = CVode(cvode_mem, tps[ii], state, &t, CV_NORMAL);
         if (flag < 0) {
@@ -497,7 +533,7 @@ void calcProfileSet (double *pYData, double *totData, double *surfData, double *
 
 
 
-
+//Plots data on a grid
 static int AXL_react_diff(const double t, N_Vector xx , N_Vector dxxdt, void *user_data) {
     struct rates *pInD = (struct rates *) user_data;
     double reactIn[Nspecies];
